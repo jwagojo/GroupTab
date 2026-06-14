@@ -4,42 +4,50 @@ import './App.css'
 // --- FIREBASE IMPORTS ---
 import { auth, googleProvider, db } from './firebase'
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth'
-import { 
-  doc, 
-  setDoc, 
-  onSnapshot, 
-  query, 
-  collection, 
-  where, 
-  getDocs, 
-  updateDoc, 
-  arrayUnion, 
-  deleteDoc
+import {
+  doc,
+  setDoc,
+  onSnapshot,
+  query,
+  collection,
+  where,
+  updateDoc,
+  arrayUnion,
+  deleteDoc,
+  writeBatch
 } from 'firebase/firestore'
 
 // --- ASSETS ---
 const GoogleIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
   </svg>
 );
+
+const tripCardEmojis = ['🧳', '🌎', '🏝️', '🏔️', '🏙️', '🗺️', '🚗', '🚆', '🚢', '🏕️', '🌅', '📍'];
 
 function App() {
   // --- USER STATE ---
   const [user, setUser] = useState(null)
 
+  // --- ERROR STATE ---
+  const [error, setError] = useState(null)
+  const [successMessage, setSuccessMessage] = useState(null)
+
   // --- NAVIGATION STATE ---
-  const [view, setView] = useState('login') 
+  const [view, setView] = useState('login')
   const [activeTripId, setActiveTripId] = useState(null)
-  const [activeLocation, setActiveLocation] = useState(null) 
+  const [activeLocation, setActiveLocation] = useState(null)
 
   // --- DATA STATE ---
-  const [trips, setTrips] = useState([]) 
+  const [trips, setTrips] = useState([])
   const [newFolderName, setNewFolderName] = useState('')
   const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [isClearingTrips, setIsClearingTrips] = useState(false)
+  const [tripEmojiMap, setTripEmojiMap] = useState({})
 
   // --- EDITING STATES ---
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -53,21 +61,21 @@ function App() {
   // --- RECEIPT BUILDER STATE ---
   const [receiptLoc, setReceiptLoc] = useState('')
   const [receiptPayer, setReceiptPayer] = useState('')
-  const [taxMode, setTaxMode] = useState('$') 
-  const [tipMode, setTipMode] = useState('$') 
+  const [taxMode, setTaxMode] = useState('$')
+  const [tipMode, setTipMode] = useState('$')
   const [receiptTax, setReceiptTax] = useState('')
   const [receiptTip, setReceiptTip] = useState('')
   const [currentItems, setCurrentItems] = useState([])
-   
+
   // Item Inputs
   const [itemName, setItemName] = useState('')
-  const [unitPrice, setUnitPrice] = useState('')   
-  const [quantity, setQuantity] = useState(1)      
+  const [unitPrice, setUnitPrice] = useState('')
+  const [quantity, setQuantity] = useState(1)
   const [itemConsumer, setItemConsumer] = useState('')
 
   // EDITING EXPENSE STATE
-  const [editingIndex, setEditingIndex] = useState(null) 
-  const [editingTripExpenseId, setEditingTripExpenseId] = useState(null) 
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [editingTripExpenseId, setEditingTripExpenseId] = useState(null)
   const [editingLocationBatch, setEditingLocationBatch] = useState(null);
 
   // Results
@@ -85,21 +93,21 @@ function App() {
       } else {
         setUser(null)
         setView('login')
-        setTrips([]) 
+        setTrips([])
       }
     })
     return () => unsubscribe()
   }, [])
 
 
- // ==========================================
+  // ==========================================
   // 2. DATABASE SYNC (READ/WRITE)
   // ==========================================
   useEffect(() => {
     if (user) {
       console.log("Listening for trips for user:", user.uid);
       const q = query(collection(db, "shared_trips"), where("members", "array-contains", user.uid));
-      
+
       const unsub = onSnapshot(q, (querySnapshot) => {
         const tripList = [];
         querySnapshot.forEach((doc) => {
@@ -113,11 +121,38 @@ function App() {
     }
   }, [user]);
 
+  useEffect(() => {
+    setTripEmojiMap((currentMap) => {
+      const nextMap = {};
+      trips.forEach((trip) => {
+        nextMap[trip.id] = currentMap[trip.id] || tripCardEmojis[Math.floor(Math.random() * tripCardEmojis.length)];
+      });
+      return nextMap;
+    });
+  }, [trips]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    trips
+      .filter(trip => !trip.ownerId && trip.members?.[0] === user.uid)
+      .forEach(async (trip) => {
+        try {
+          await updateDoc(doc(db, "shared_trips", trip.id), {
+            ownerId: user.uid,
+            admins: [user.uid]
+          });
+        } catch (err) {
+          console.warn("Could not claim legacy trip ownership:", trip.id, err);
+        }
+      });
+  }, [trips, user]);
+
   const updateTripInCloud = async (tripId, updatedData) => {
     if (!user) return;
     try {
       const tripRef = doc(db, "shared_trips", tripId);
-      await updateDoc(tripRef, updatedData);
+      await updateDoc(tripRef, { ...updatedData, lastUpdated: new Date() });
     } catch (e) {
       console.error("Error updating trip:", e);
       alert("Permission denied. Check your rules for shared_trips.");
@@ -144,9 +179,19 @@ function App() {
   // HELPER: GET DATA
   // ==========================================
   const activeTrip = trips.find(t => t.id === activeTripId)
-   
-  const locationExpenses = activeTrip 
-    ? activeTrip.expenses.filter(e => e.location === activeLocation)
+  const isTripManager = (trip) => {
+    if (!user || !trip) return false;
+    if (trip.ownerId) return trip.ownerId === user.uid || trip.admins?.includes(user.uid);
+    return trip.members?.[0] === user.uid;
+  };
+  const manageableTrips = trips.filter(isTripManager);
+
+  const locationExpenses = activeTrip
+    ? activeTrip.expenses.filter(e => e.location === activeLocation).sort((a, b) => {
+      const dateA = a.createdAt instanceof Object ? a.createdAt.toMillis?.() || new Date(a.createdAt).getTime() : new Date(a.createdAt).getTime();
+      const dateB = b.createdAt instanceof Object ? b.createdAt.toMillis?.() || new Date(b.createdAt).getTime() : new Date(b.createdAt).getTime();
+      return dateB - dateA;
+    })
     : []
 
   const tripLocations = activeTrip
@@ -170,7 +215,7 @@ function App() {
   const openTrip = (id) => {
     setActiveTripId(id)
     setView('trip_view')
-    setResults([]) 
+    setResults([])
   }
 
   const openLocationTab = (location) => {
@@ -188,8 +233,8 @@ function App() {
     setTaxMode('$')
     setTipMode('$')
     setEditingIndex(null)
-    setEditingTripExpenseId(null) 
-    setEditingLocationBatch(null) 
+    setEditingTripExpenseId(null)
+    setEditingLocationBatch(null)
     setView('receipt_editor')
   }
 
@@ -219,11 +264,11 @@ function App() {
     setReceiptTax(totalTax.toFixed(2));
     setReceiptTip(totalTip.toFixed(2));
     setCurrentItems(builderItems);
-    
-    setTaxMode('$'); 
+
+    setTaxMode('$');
     setTipMode('$');
-    
-    setEditingLocationBatch(location); 
+
+    setEditingLocationBatch(location);
     setView('receipt_editor');
   };
 
@@ -249,8 +294,8 @@ function App() {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          
-          resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
         };
       };
     });
@@ -261,16 +306,16 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 10000000) { 
-       alert("File is way too huge! Please pick something smaller.");
-       return;
+    if (file.size > 10000000) {
+      alert("File is way too huge! Please pick something smaller.");
+      return;
     }
 
     try {
       const resizedBase64 = await resizeImage(file);
       const updatedImages = { ...(activeTrip.receiptImages || {}), [location]: resizedBase64 };
       await updateTripInCloud(activeTripId, { receiptImages: updatedImages });
-      
+
     } catch (err) {
       console.error("Image upload error:", err);
       alert("Could not process image.");
@@ -289,6 +334,7 @@ function App() {
     if (!newFolderName.trim()) return;
 
     const generatedCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const now = new Date();
 
     const newTrip = {
       name: newFolderName,
@@ -296,8 +342,11 @@ function App() {
       themes: {},
       background: '',
       joinCode: generatedCode,
+      ownerId: user.uid,
+      admins: [user.uid],
       members: [user.uid],
-      createdAt: new Date()
+      createdAt: now,
+      lastUpdated: now
     };
 
     try {
@@ -311,38 +360,32 @@ function App() {
 
   const handleJoinTrip = async () => {
     if (!joinCodeInput.trim()) return;
-    
+
     const formattedCode = joinCodeInput.trim().toUpperCase();
 
     try {
-      const q = query(
-        collection(db, "shared_trips"), 
-        where("joinCode", "==", formattedCode)
-      );
-      
-      const querySnapshot = await getDocs(q);
+      const tripRef = doc(db, "shared_trips", formattedCode);
 
-      if (!querySnapshot.empty) {
-        const tripDoc = querySnapshot.docs[0];
-        const tripRef = doc(db, "shared_trips", tripDoc.id);
+      await updateDoc(tripRef, {
+        members: arrayUnion(user.uid)
+      });
 
-        await updateDoc(tripRef, {
-          members: arrayUnion(user.uid)
-        });
-
-        setJoinCodeInput('');
-        alert("Successfully joined the trip!");
-      } else {
-        alert("Invalid Code. Make sure you typed all 6 characters correctly.");
-      }
+      setJoinCodeInput('');
+      alert("Successfully joined the trip!");
     } catch (e) {
       console.error("Join Error:", e);
-      alert("Permission denied. Check your Firestore rules for 'list' access.");
+      alert("Could not join that trip. Check the code and try again.");
     }
   };
 
   const deleteFolder = async (e, id) => {
     e.stopPropagation();
+    const tripToDelete = trips.find(trip => trip.id === id);
+    if (!isTripManager(tripToDelete)) {
+      alert("Only the trip owner or an admin can delete this trip.");
+      return;
+    }
+
     if (confirm("Delete this entire trip folder for everyone?")) {
       try {
         const tripDocRef = doc(db, "shared_trips", id);
@@ -351,6 +394,40 @@ function App() {
         console.error("Error deleting trip: ", err);
         alert("Failed to delete. You might not have permission.");
       }
+    }
+  };
+
+  const clearAllTrips = async () => {
+    if (!user || manageableTrips.length === 0 || isClearingTrips) return;
+
+    const tripCount = manageableTrips.length;
+    const confirmMessage = `This will permanently delete ${tripCount} trip${tripCount === 1 ? '' : 's'} you own or administer for everyone who has access. Continue?`;
+    const hasFirstConfirmation = window.confirm(confirmMessage);
+    if (!hasFirstConfirmation) return;
+
+    const confirmationPhrase = `CLEAR ${tripCount}`;
+    const typedConfirmation = window.prompt(`Final confirmation: type "${confirmationPhrase}" to delete all trips.`);
+    if (typedConfirmation !== confirmationPhrase) {
+      alert("Clear all trips cancelled. The confirmation phrase did not match.");
+      return;
+    }
+
+    setIsClearingTrips(true);
+    try {
+      const batchSize = 450;
+      for (let i = 0; i < manageableTrips.length; i += batchSize) {
+        const batch = writeBatch(db);
+        manageableTrips.slice(i, i + batchSize).forEach((trip) => {
+          batch.delete(doc(db, "shared_trips", trip.id));
+        });
+        await batch.commit();
+      }
+      setShowBgPicker(null);
+    } catch (err) {
+      console.error("Error clearing trips: ", err);
+      alert("Failed to clear all trips. You might not have permission.");
+    } finally {
+      setIsClearingTrips(false);
     }
   };
 
@@ -375,7 +452,7 @@ function App() {
   const handleFileUpload = (e, tripId) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 500000) { 
+      if (file.size > 500000) {
         alert("Image is too large! Please choose a file smaller than 500KB.");
         return;
       }
@@ -392,7 +469,7 @@ function App() {
     if (!activeTrip || !activeLocation) return;
     const updatedThemes = { ...(activeTrip.themes || {}), [activeLocation]: themeValue };
     await updateTripInCloud(activeTripId, { themes: updatedThemes });
-    setShowBgPicker(null); 
+    setShowBgPicker(null);
   };
 
   // --- EDIT TRIP NAME ---
@@ -407,8 +484,8 @@ function App() {
     setEditingTripExpenseId(expense.id)
     setReceiptLoc(expense.location)
     setReceiptPayer(expense.payer)
-    
-    const name = expense.rawName || expense.item.replace(/^\d+x\s/, '') 
+
+    const name = expense.rawName || expense.item.replace(/^\d+x\s/, '')
     const qty = expense.rawQty || 1
     const price = expense.rawUnitPrice || expense.originalPrice / qty
 
@@ -423,9 +500,9 @@ function App() {
 
     setReceiptTax(expense.taxShare.toFixed(2))
     setReceiptTip(expense.tipShare.toFixed(2))
-    setTaxMode('$') 
+    setTaxMode('$')
     setTipMode('$')
-    
+
     // Important: We are NOT in batch mode here, just single item fix
     setEditingLocationBatch(null);
     setView('receipt_editor')
@@ -438,7 +515,7 @@ function App() {
 
     try {
       // Send expenses to the Python backend
-      const response = await fetch('/api/calculate', { 
+      const response = await fetch('/api/calculate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -451,7 +528,7 @@ function App() {
       }
 
       const settlementPlan = await response.json();
-      setResults(settlementPlan);
+      setResults(Array.isArray(settlementPlan) ? settlementPlan : settlementPlan.data || []);
     } catch (error) {
       console.error("Error fetching settlement:", error);
       alert("Failed to connect to backend. Make sure app.py is running on port 5000!");
@@ -465,12 +542,12 @@ function App() {
     if (!itemName || !unitPrice || !itemConsumer) return alert("Fill item details")
     const qty = parseFloat(quantity) || 1
     const price = parseFloat(unitPrice)
-    const totalLineCost = price * qty 
+    const totalLineCost = price * qty
     const newItem = {
       name: itemName,
       qty: qty,
       unitPrice: price,
-      totalPrice: totalLineCost, 
+      totalPrice: totalLineCost,
       consumers: itemConsumer.split(',').map(n => n.trim())
     }
     if (editingIndex !== null) {
@@ -483,7 +560,7 @@ function App() {
     }
     setItemName('')
     setUnitPrice('')
-    setQuantity(1) 
+    setQuantity(1)
   }
 
   const startEditingDraftItem = (index) => {
@@ -497,14 +574,14 @@ function App() {
 
   // --- UPDATED SAVE FUNCTION (Handles Batch Overwrite) ---
   const saveReceiptToTrip = async () => {
-  if (!receiptLoc || !receiptPayer) return alert("Enter Location and Payer");
+    if (!receiptLoc || !receiptPayer) return alert("Enter Location and Payer");
     if (currentItems.length === 0) return alert("Add items");
 
     // 1. Calculate Math (Tax & Tip)
     const subtotal = currentItems.reduce((sum, item) => sum + item.totalPrice, 0);
     let taxTotal = parseFloat(receiptTax) || 0;
     let tipTotal = parseFloat(receiptTip) || 0;
-    
+
     if (taxMode === '%') taxTotal = subtotal * (taxTotal / 100);
     if (tipMode === '%') tipTotal = subtotal * (tipTotal / 100);
 
@@ -517,17 +594,18 @@ function App() {
       const itemTip = item.totalPrice * tipRate;
       return {
         id: (Date.now() + Math.random()), // Always generate new IDs to avoid conflicts
-        item: `${item.qty}x ${item.name}`, 
+        item: `${item.qty}x ${item.name}`,
         location: receiptLoc,
         payer: receiptPayer,
-        amount: item.totalPrice + itemTax + itemTip,      
+        amount: item.totalPrice + itemTax + itemTip,
         involved: item.consumers,
         rawName: item.name,
         rawQty: item.qty,
         rawUnitPrice: item.unitPrice,
         originalPrice: item.totalPrice,
         taxShare: itemTax,
-        tipShare: itemTip
+        tipShare: itemTip,
+        createdAt: new Date()
       };
     });
 
@@ -535,18 +613,19 @@ function App() {
     try {
       const tripRef = doc(db, "shared_trips", activeTripId);
       let finalExpensesList = activeTrip.expenses;
-      
+
       // IF EDITING BATCH: Remove ALL old items from this location first
       if (editingLocationBatch) {
-          finalExpensesList = finalExpensesList.filter(e => e.location !== editingLocationBatch);
-      } 
+        finalExpensesList = finalExpensesList.filter(e => e.location !== editingLocationBatch);
+      }
       // IF EDITING SINGLE ITEM (Legacy support): Remove just that ID
       else if (editingTripExpenseId) {
-          finalExpensesList = finalExpensesList.filter(e => e.id !== editingTripExpenseId);
+        finalExpensesList = finalExpensesList.filter(e => e.id !== editingTripExpenseId);
       }
 
       await updateDoc(tripRef, {
-        expenses: [...finalExpensesList, ...newExpenses]
+        expenses: [...finalExpensesList, ...newExpenses],
+        lastUpdated: new Date()
       });
 
       setActiveLocation(receiptLoc);
@@ -570,10 +649,10 @@ function App() {
         if (!breakdown[person]) {
           breakdown[person] = { items: [], subtotal: 0, tax: 0, tip: 0, grandTotal: 0 }
         }
-        breakdown[person].items.push({ 
-          name: exp.item, 
-          location: exp.location, 
-          cost: splitPrice 
+        breakdown[person].items.push({
+          name: exp.item,
+          location: exp.location,
+          cost: splitPrice
         })
         breakdown[person].subtotal += splitPrice
         breakdown[person].tax += splitTax
@@ -584,10 +663,17 @@ function App() {
     return breakdown
   }
 
+  const updateBackgroundPosition = (e) => {
+    const x = `${(e.clientX / window.innerWidth) * 100}%`;
+    const y = `${(e.clientY / window.innerHeight) * 100}%`;
+    document.documentElement.style.setProperty('--cursor-x', x);
+    document.documentElement.style.setProperty('--cursor-y', y);
+  };
+
   // ##########################################
   // MAIN RENDER
   // ##########################################
-   
+
   if (view === 'login' || !user) {
     return (
       <div className="hero-wrapper">
@@ -599,10 +685,10 @@ function App() {
             </h1>
             <p className="hero-desc">Track shared expenses for trips, dinners, and roommates. No more awkward math or lost receipts.</p>
             <button className="btn btn-primary btn-large" onClick={handleGoogleLogin}>
-               <div style={{background: 'white', borderRadius: '50%', padding: '4px', display:'flex', marginRight:'12px'}}>
-                 <GoogleIcon />
-               </div>
-               Continue with Google
+              <div style={{ background: 'white', borderRadius: '50%', padding: '4px', display: 'flex', marginRight: '12px' }}>
+                <GoogleIcon />
+              </div>
+              Continue with Google
             </button>
             <div className="trust-badge">
               <div className="avatars"><span className="avatar">👤</span><span className="avatar">😎</span><span className="avatar">🤠</span></div>
@@ -627,120 +713,147 @@ function App() {
 
   // --- AUTHENTICATED APP ---
   return (
-    <div className="app-container">
+    <div className="app-container" onMouseMove={updateBackgroundPosition}>
       <div className="background-glow"></div>
-      
+
       {/* HEADER */}
-      <div className="no-print" style={{marginBottom:'20px', borderBottom:'1px solid var(--glass-border)', paddingBottom:'10px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-        <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
-           <h2 className="header-title" style={{margin:0, fontSize:'1.8rem', cursor:'pointer'}} onClick={goHome}>GroupTab 📁</h2>
-           <span style={{fontSize:'0.9rem', color:'var(--text-muted)', background: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '20px'}}>
-             {user.displayName ? user.displayName.split(' ')[0] : 'User'}
-           </span>
+      <div className="no-print" style={{ marginBottom: '20px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <h2 className="header-title" style={{ margin: 0, fontSize: '1.8rem', cursor: 'pointer' }} onClick={goHome}>GroupTab 📁</h2>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '20px' }}>
+            {user.displayName ? user.displayName.split(' ')[0] : 'User'}
+          </span>
         </div>
-        <div style={{display:'flex', gap:'10px'}}>
-           {view !== 'dashboard' && <button className="back-btn" onClick={goHome}>Home</button>}
-           <button className="back-btn" style={{color:'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)'}} onClick={handleLogout}>Logout</button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {view !== 'dashboard' && <button className="back-btn" onClick={goHome}>Home</button>}
+          <button className="back-btn" style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)' }} onClick={handleLogout}>Logout</button>
         </div>
       </div>
-      
+
       {/* ---------------- VIEW 1: DASHBOARD ---------------- */}
       {view === 'dashboard' && (
         <div className="dashboard-container">
           <div className="dashboard-header">
             <div>
               <h1 className="dash-title">Welcome back, <span className="text-highlight">{user.displayName ? user.displayName.split(' ')[0] : 'Traveler'}</span></h1>
-              <p className="dash-subtitle">Ready for your next adventure?</p>
+              <p className="dash-subtitle">Create a trip, join a group, or jump back into recent expenses.</p>
             </div>
             <div className="stat-pill"><span className="stat-num">{trips.length}</span><span className="stat-label">Active Trips</span></div>
           </div>
 
-          <div className="create-bar-container" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <div className="create-bar-container">
             {/* CREATE NEW TRIP */}
-            <div className="create-bar">
-              <span className="search-icon">✈️</span>
-              <input 
-                className="transparent-input" 
-                placeholder="Create new trip (e.g. Madrid 2026)" 
-                value={newFolderName} 
-                onChange={e => setNewFolderName(e.target.value)} 
-                onKeyDown={(e) => e.key === 'Enter' && createFolder()}
-              />
-              <button className="btn-icon" onClick={createFolder}>➝</button>
+            <div className="action-panel">
+              <div className="action-title"><span className="action-icon">+</span>Create Trip</div>
+              <div className="create-bar">
+                <input
+                  className="transparent-input"
+                  placeholder="Madrid 2026"
+                  value={newFolderName}
+                  onChange={e => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && createFolder()}
+                />
+                <button className="btn-icon" onClick={createFolder}>Create</button>
+              </div>
             </div>
 
             {/* JOIN EXISTING TRIP */}
-            <div className="create-bar" style={{ borderColor: 'var(--primary-glow)' }}>
-              <span className="search-icon">🔑</span>
-                <input 
-                  className="transparent-input" 
-                  placeholder="Enter Join Code (e.g. AB1234)" 
-                  value={joinCodeInput} 
-                  maxLength={6} 
-                  onChange={e => setJoinCodeInput(e.target.value.toUpperCase())} 
+            <div className="action-panel">
+              <div className="action-title"><span className="action-icon">#</span>Join Trip</div>
+              <div className="create-bar">
+                <input
+                  className="transparent-input"
+                  placeholder="AB1234"
+                  value={joinCodeInput}
+                  maxLength={6}
+                  onChange={e => setJoinCodeInput(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === 'Enter' && handleJoinTrip(joinCodeInput)}
-              />
-              <button className="btn-icon" onClick={() => handleJoinTrip(joinCodeInput)}>Join</button>
+                />
+                <button className="btn-icon" onClick={() => handleJoinTrip(joinCodeInput)}>Join</button>
+              </div>
             </div>
           </div>
 
           <div className="trips-section">
-            <h3 className="section-title">Your Trips🗺️</h3>
+            <div className="trips-section-header">
+              <h3 className="section-title">Your Trips</h3>
+              <button
+                className="clear-trips-btn"
+                onClick={clearAllTrips}
+                disabled={manageableTrips.length === 0 || isClearingTrips}
+              >
+                {isClearingTrips ? 'Clearing...' : 'Clear All'}
+              </button>
+            </div>
             {trips.length === 0 ? (
               <div className="empty-state"><div className="empty-icon"></div><p>No trips yet. Type a destination above to get started!</p></div>
             ) : (
-              <div className="folder-grid">
-                {trips.map(trip => (
-                  <div 
-                    key={trip.id} 
-                    className="folder-card" 
+              <div className="home-trip-grid">
+                {[...trips].sort((a, b) => {
+                  const dateA = a.lastUpdated instanceof Object ? a.lastUpdated.toMillis?.() || new Date(a.lastUpdated).getTime() : new Date(a.lastUpdated).getTime();
+                  const dateB = b.lastUpdated instanceof Object ? b.lastUpdated.toMillis?.() || new Date(b.lastUpdated).getTime() : new Date(b.lastUpdated).getTime();
+                  return dateB - dateA;
+                }).map(trip => (
+                  <div
+                    key={trip.id}
+                    className="folder-card home-trip-card"
                     onClick={() => openTrip(trip.id)}
-                    style={trip.background ? {backgroundImage: trip.background, backgroundSize: 'cover', backgroundPosition: 'center'} : {}}
+                    style={trip.background ? { backgroundImage: trip.background, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
                   >
-                    <div className="folder-content" style={trip.background ? {textShadow: '0 2px 4px rgba(0,0,0,0.8)'} : {}}>
-                      <span className="folder-icon" style={trip.background ? {filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))'} : {}}></span>
+                    <div className="folder-content" style={trip.background ? { textShadow: '0 2px 4px rgba(0,0,0,0.8)' } : {}}>
+                      <div className="home-trip-top">
+                        <span className="folder-icon" style={trip.background ? { filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))' } : {}}>{tripEmojiMap[trip.id] || '🧳'}</span>
+                        <div className="home-trip-actions">
+                          <button
+                            className="delete-btn"
+                            onClick={(e) => { e.stopPropagation(); setShowBgPicker(showBgPicker === trip.id ? null : trip.id); }}
+                            title="Change cover"
+                          >
+                            ✏️
+                          </button>
+                          {isTripManager(trip) && (
+                            <button className="delete-btn" onClick={(e) => deleteFolder(e, trip.id)} title="Delete trip">✕</button>
+                          )}
+                        </div>
+                      </div>
                       <div className="folder-info">
                         <div className="folder-name">{trip.name}</div>
-                        <div className="folder-meta" style={trip.background ? {color:'rgba(255,255,255,0.9)'} : {}}>{trip.expenses.length} expenses</div>
+                        <div className="folder-meta" style={trip.background ? { color: 'rgba(255,255,255,0.9)' } : {}}>
+                          <span>{trip.expenses.length} expenses</span>
+                          <span className="meta-dot">{trip.members?.length || 1} members</span>
+                        </div>
+                        <div className="folder-date" style={trip.background ? { color: 'rgba(255,255,255,0.85)' } : {}}>
+                          Updated {new Date(trip.lastUpdated?.toMillis?.() || trip.lastUpdated).toLocaleDateString()}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div style={{display:'flex', gap:'5px', position:'absolute', top:'10px', right:'10px'}}>
-                      <button 
-                        className="delete-btn" 
-                        onClick={(e) => { e.stopPropagation(); setShowBgPicker(showBgPicker === trip.id ? null : trip.id); }}
-                      >
-                        ✏️
-                      </button>
-                      <button className="delete-btn" onClick={(e) => deleteFolder(e, trip.id)}>✕</button>
                     </div>
 
                     {showBgPicker === trip.id && (
                       <div className="theme-picker-popup" onClick={e => e.stopPropagation()}>
-                        <div style={{marginBottom:'12px', fontWeight:'bold', fontSize:'0.9rem'}}>Change Cover</div>
+                        <div style={{ marginBottom: '12px', fontWeight: 'bold', fontSize: '0.9rem' }}>Change Cover</div>
                         <div className="theme-options">
-                          <div className="theme-circle" style={{background:'linear-gradient(135deg, #6366f1, #a855f7)'}} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #6366f1, #a855f7)')}></div>
-                          <div className="theme-circle" style={{background:'linear-gradient(135deg, #ec4899, #8b5cf6)'}} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #ec4899, #8b5cf6)')}></div>
-                          <div className="theme-circle" style={{background:'linear-gradient(135deg, #10b981, #3b82f6)'}} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #10b981, #3b82f6)')}></div>
-                          <div className="theme-circle" style={{background:'linear-gradient(135deg, #f59e0b, #ef4444)'}} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #f59e0b, #ef4444)')}></div>
-                          <div className="theme-circle" style={{background:'linear-gradient(135deg, #06b6d4, #3b82f6)'}} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #06b6d4, #3b82f6)')}></div>
-                          <div className="theme-circle" style={{background:'rgba(255,255,255,0.05)', border:'1px solid #555'}} onClick={() => updateTripBackground(trip.id, '')}></div>
+                          <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #6366f1, #a855f7)')}></div>
+                          <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #ec4899, #8b5cf6)' }} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #ec4899, #8b5cf6)')}></div>
+                          <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #10b981, #3b82f6)' }} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #10b981, #3b82f6)')}></div>
+                          <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #f59e0b, #ef4444)')}></div>
+                          <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)' }} onClick={() => updateTripBackground(trip.id, 'linear-gradient(135deg, #06b6d4, #3b82f6)')}></div>
+                          <div className="theme-circle" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #555' }} onClick={() => updateTripBackground(trip.id, '')}></div>
                         </div>
-                        
-                        <div style={{marginTop:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                          <input placeholder="Paste Image URL..." style={{fontSize:'0.9rem', padding:'8px'}} value={customImageUrl} onChange={e => setCustomImageUrl(e.target.value)}/>
-                          <button className="btn btn-primary" style={{padding:'8px', fontSize:'0.9rem', width:'100%'}} onClick={() => updateTripBackground(trip.id, `url(${customImageUrl})`)}>Use URL</button>
-                          
-                          <div style={{display:'flex', alignItems:'center', gap:'5px', marginTop:'5px'}}>
-                            <div style={{height:'1px', background:'rgba(255,255,255,0.2)', flex:1}}></div>
-                            <span style={{fontSize:'0.7rem', color:'#888'}}>OR</span>
-                            <div style={{height:'1px', background:'rgba(255,255,255,0.2)', flex:1}}></div>
+
+                        <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <input placeholder="Paste Image URL..." style={{ fontSize: '0.9rem', padding: '8px' }} value={customImageUrl} onChange={e => setCustomImageUrl(e.target.value)} />
+                          <button className="btn btn-primary" style={{ padding: '8px', fontSize: '0.9rem', width: '100%' }} onClick={() => updateTripBackground(trip.id, `url(${customImageUrl})`)}>Use URL</button>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px' }}>
+                            <div style={{ height: '1px', background: 'rgba(255,255,255,0.2)', flex: 1 }}></div>
+                            <span style={{ fontSize: '0.7rem', color: '#888' }}>OR</span>
+                            <div style={{ height: '1px', background: 'rgba(255,255,255,0.2)', flex: 1 }}></div>
                           </div>
 
-                          <input 
-                            type="file" 
-                            accept="image/*" 
-                            style={{display:'none'}} 
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
                             ref={fileInputRef}
                             onChange={(e) => handleFileUpload(e, trip.id)}
                           />
@@ -764,13 +877,13 @@ function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {isEditingTitle ? (
-                <input 
-                  className="header-title-input" 
-                  value={tempTitle} 
-                  onChange={(e) => setTempTitle(e.target.value)} 
-                  onBlur={handleSaveTripName} 
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveTripName()} 
-                  autoFocus 
+                <input
+                  className="header-title-input"
+                  value={tempTitle}
+                  onChange={(e) => setTempTitle(e.target.value)}
+                  onBlur={handleSaveTripName}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveTripName()}
+                  autoFocus
                 />
               ) : (
                 <h1 className="header-title" onClick={() => { setIsEditingTitle(true); setTempTitle(activeTrip.name); }}>
@@ -795,8 +908,8 @@ function App() {
               <strong style={{ letterSpacing: '1px', color: 'white' }}>
                 {activeTrip.joinCode || '------'}
               </strong>
-              <span 
-                style={{ cursor: 'pointer', marginLeft: '5px' }} 
+              <span
+                style={{ cursor: 'pointer', marginLeft: '5px' }}
                 onClick={() => navigator.clipboard.writeText(activeTrip.joinCode)}
                 title="Copy Code"
               >
@@ -808,19 +921,19 @@ function App() {
           <div className="layout-grid">
             {/* LEFT: RECEIPT TABS */}
             <div>
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
-                 <h2 style={{margin:0}}>Receipts</h2>
-                 <button className="btn btn-primary" style={{width:'auto', padding:'10px 20px'}} onClick={openReceiptBuilder}>+ Add New</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h2 style={{ margin: 0 }}>Receipts</h2>
+                <button className="btn btn-primary" style={{ width: 'auto', padding: '10px 20px' }} onClick={openReceiptBuilder}>+ Add New</button>
               </div>
-              {tripLocations.length === 0 && <div style={{color:'var(--text-muted)', padding:'20px', border:'1px dashed var(--glass-border)', borderRadius:'10px'}}>No receipts yet.</div>}
-              <div className="folder-grid" style={{justifyContent:'flex-start'}}>
+              {tripLocations.length === 0 && <div style={{ color: 'var(--text-muted)', padding: '20px', border: '1px dashed var(--glass-border)', borderRadius: '10px' }}>No receipts yet.</div>}
+              <div className="folder-grid" style={{ justifyContent: 'flex-start' }}>
                 {tripLocations.map(loc => {
                   const locTheme = activeTrip.themes?.[loc];
                   const tileStyle = locTheme ? { backgroundImage: locTheme, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
                   return (
-                    <div key={loc} className="folder-card" style={{padding:'20px', ...tileStyle}} onClick={() => openLocationTab(loc)}>
-                      <span style={{fontSize:'2rem', textShadow: locTheme ? '0 2px 4px rgba(0,0,0,0.5)' : 'none'}}>🧾</span>
-                      <div style={{fontWeight:'bold', marginTop:'5px', color:'white', textShadow: locTheme ? '0 2px 4px rgba(0,0,0,0.8)' : 'none'}}>{loc}</div>
+                    <div key={loc} className="folder-card" style={{ padding: '20px', ...tileStyle }} onClick={() => openLocationTab(loc)}>
+                      <span style={{ fontSize: '2rem', textShadow: locTheme ? '0 2px 4px rgba(0,0,0,0.5)' : 'none' }}>🧾</span>
+                      <div style={{ fontWeight: 'bold', marginTop: '5px', color: 'white', textShadow: locTheme ? '0 2px 4px rgba(0,0,0,0.8)' : 'none' }}>{loc}</div>
                     </div>
                   )
                 })}
@@ -829,42 +942,42 @@ function App() {
 
             {/* RIGHT: TRIP CALCULATIONS */}
             <div>
-               <div className="card">
-                 <h2 style={{marginTop:0}}>Final Settlement</h2>
-                 <p style={{fontSize:'0.9rem', color:'var(--text-muted)'}}>Calculates net debts across ALL receipts.</p>
-                 <button className="btn btn-primary" onClick={calculateTripSettlement} disabled={isLoading || activeTrip.expenses.length === 0}>
-                   {isLoading ? 'Calculating...' : 'Calculate Who Owes Who'}
-                 </button>
-               </div>
-               {results.length > 0 && (
-                 <div className="card settlement-card">
-                   <h2 style={{marginTop:0, color:'var(--success)'}}>Who Owes Who?</h2>
-                   {results.map((line, idx) => <div key={idx} className="settlement-row">✅ {line}</div>)}
-                 </div>
-               )}
-               {activeTrip.expenses.length > 0 && (
-                 <div style={{marginTop:'30px'}}>
-                    <h3 style={{marginBottom:'15px', paddingLeft:'10px'}}>Total Trip Breakdown</h3>
-                    <div className="breakdown-grid"> 
-                      {Object.entries(getBreakdown(activeTrip.expenses)).map(([person, data]) => (
-                        <div key={person} className="spreadsheet-card">
-                          <div className="spreadsheet-header">{person}</div>
-                          <div className="spreadsheet-body">
-                            {data.items.map((i, idx) => (
-                               <div key={idx} className="line-item"><span>{i.name} <span style={{fontSize:'0.7rem', color:'var(--text-muted)'}}>({i.location})</span></span><span>{i.cost.toFixed(2)}</span></div>
-                            ))}
-                          </div>
-                          <div className="spreadsheet-footer">
-                             <div className="summary-row"><span>Subtotal</span><span>{data.subtotal.toFixed(2)}</span></div>
-                             <div className="summary-row"><span>Tax</span><span>{data.tax.toFixed(2)}</span></div>
-                             <div className="summary-row"><span>Tip</span><span>{data.tip.toFixed(2)}</span></div>
-                             <div className="grand-total-row"><span>TOTAL</span><span>${data.grandTotal.toFixed(2)}</span></div>
-                          </div>
+              <div className="card">
+                <h2 style={{ marginTop: 0 }}>Final Settlement</h2>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Calculates net debts across ALL receipts.</p>
+                <button className="btn btn-primary" onClick={calculateTripSettlement} disabled={isLoading || activeTrip.expenses.length === 0}>
+                  {isLoading ? 'Calculating...' : 'Calculate Who Owes Who'}
+                </button>
+              </div>
+              {results.length > 0 && (
+                <div className="card settlement-card">
+                  <h2 style={{ marginTop: 0, color: 'var(--success)' }}>Who Owes Who?</h2>
+                  {results.map((line, idx) => <div key={idx} className="settlement-row">✅ {line}</div>)}
+                </div>
+              )}
+              {activeTrip.expenses.length > 0 && (
+                <div style={{ marginTop: '30px' }}>
+                  <h3 style={{ marginBottom: '15px', paddingLeft: '10px' }}>Total Trip Breakdown</h3>
+                  <div className="breakdown-grid">
+                    {Object.entries(getBreakdown(activeTrip.expenses)).map(([person, data]) => (
+                      <div key={person} className="spreadsheet-card">
+                        <div className="spreadsheet-header">{person}</div>
+                        <div className="spreadsheet-body">
+                          {data.items.map((i, idx) => (
+                            <div key={idx} className="line-item"><span>{i.name} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>({i.location})</span></span><span>{i.cost.toFixed(2)}</span></div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                 </div>
-               )}
+                        <div className="spreadsheet-footer">
+                          <div className="summary-row"><span>Subtotal</span><span>{data.subtotal.toFixed(2)}</span></div>
+                          <div className="summary-row"><span>Tax</span><span>{data.tax.toFixed(2)}</span></div>
+                          <div className="summary-row"><span>Tip</span><span>{data.tip.toFixed(2)}</span></div>
+                          <div className="grand-total-row"><span>TOTAL</span><span>${data.grandTotal.toFixed(2)}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -874,32 +987,32 @@ function App() {
       {view === 'receipt_detail' && activeLocation && (
         <div className="container print-container">
           <div className="no-print">
-            <button className="back-btn" onClick={() => setView('trip_view')} style={{marginBottom:'20px'}}>← Back to Trip</button>
+            <button className="back-btn" onClick={() => setView('trip_view')} style={{ marginBottom: '20px' }}>← Back to Trip</button>
           </div>
-          
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
-             <h1 className="header-title" style={{margin:0}}>{activeLocation} <span className="no-print" style={{fontSize:'0.5em', opacity:0.5}}>Receipt</span></h1>
-             
-             <div className="no-print" style={{position:'relative'}}>
-               <button className="btn-icon" style={{width:'36px', height:'36px', fontSize:'1rem', background:'rgba(255,255,255,0.1)'}} onClick={() => setShowBgPicker(!showBgPicker)}>🎨</button>
-               {showBgPicker && (
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h1 className="header-title" style={{ margin: 0 }}>{activeLocation} <span className="no-print" style={{ fontSize: '0.5em', opacity: 0.5 }}>Receipt</span></h1>
+
+            <div className="no-print" style={{ position: 'relative' }}>
+              <button className="btn-icon" style={{ width: '36px', height: '36px', fontSize: '1rem', background: 'rgba(255,255,255,0.1)' }} onClick={() => setShowBgPicker(!showBgPicker)}>🎨</button>
+              {showBgPicker && (
                 <div className="theme-picker-popup">
-                  <div style={{marginBottom:'8px', fontWeight:'bold', fontSize:'0.8rem'}}>Change Card Background</div>
+                  <div style={{ marginBottom: '8px', fontWeight: 'bold', fontSize: '0.8rem' }}>Change Card Background</div>
                   <div className="theme-options">
-                    <div className="theme-circle" style={{background:'linear-gradient(135deg, #6366f1, #a855f7)'}} onClick={() => updateReceiptTheme('linear-gradient(135deg, #6366f1, #a855f7)')}></div>
-                    <div className="theme-circle" style={{background:'linear-gradient(135deg, #ec4899, #8b5cf6)'}} onClick={() => updateReceiptTheme('linear-gradient(135deg, #ec4899, #8b5cf6)')}></div>
-                    <div className="theme-circle" style={{background:'linear-gradient(135deg, #10b981, #3b82f6)'}} onClick={() => updateReceiptTheme('linear-gradient(135deg, #10b981, #3b82f6)')}></div>
-                    <div className="theme-circle" style={{background:'linear-gradient(135deg, #f59e0b, #ef4444)'}} onClick={() => updateReceiptTheme('linear-gradient(135deg, #f59e0b, #ef4444)')}></div>
-                    <div className="theme-circle" style={{background:'linear-gradient(135deg, #06b6d4, #3b82f6)'}} onClick={() => updateReceiptTheme('linear-gradient(135deg, #06b6d4, #3b82f6)')}></div>
-                    <div className="theme-circle" style={{background:'rgba(255,255,255,0.05)', border:'1px solid #555'}} onClick={() => updateReceiptTheme('')}></div>
+                    <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #6366f1, #a855f7)' }} onClick={() => updateReceiptTheme('linear-gradient(135deg, #6366f1, #a855f7)')}></div>
+                    <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #ec4899, #8b5cf6)' }} onClick={() => updateReceiptTheme('linear-gradient(135deg, #ec4899, #8b5cf6)')}></div>
+                    <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #10b981, #3b82f6)' }} onClick={() => updateReceiptTheme('linear-gradient(135deg, #10b981, #3b82f6)')}></div>
+                    <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }} onClick={() => updateReceiptTheme('linear-gradient(135deg, #f59e0b, #ef4444)')}></div>
+                    <div className="theme-circle" style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)' }} onClick={() => updateReceiptTheme('linear-gradient(135deg, #06b6d4, #3b82f6)')}></div>
+                    <div className="theme-circle" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #555' }} onClick={() => updateReceiptTheme('')}></div>
                   </div>
-                  <div style={{marginTop:'10px', display:'flex', gap:'5px'}}>
-                    <input placeholder="Image URL..." style={{fontSize:'0.8rem', padding:'6px'}} value={customImageUrl} onChange={e => setCustomImageUrl(e.target.value)}/>
-                    <button className="btn btn-primary" style={{padding:'4px 8px', fontSize:'0.8rem', width:'auto'}} onClick={() => updateReceiptTheme(`url(${customImageUrl})`)}>Go</button>
+                  <div style={{ marginTop: '10px', display: 'flex', gap: '5px' }}>
+                    <input placeholder="Image URL..." style={{ fontSize: '0.8rem', padding: '6px' }} value={customImageUrl} onChange={e => setCustomImageUrl(e.target.value)} />
+                    <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }} onClick={() => updateReceiptTheme(`url(${customImageUrl})`)}>Go</button>
                   </div>
                 </div>
-               )}
-             </div>
+              )}
+            </div>
           </div>
 
           {/* --- NEW HIGH VISIBILITY ACTION BAR --- */}
@@ -907,67 +1020,67 @@ function App() {
             <button className="btn-action btn-edit" onClick={() => loadReceiptBatch(activeLocation)}>
               <span>✎</span> Edit / Add Items
             </button>
-            
+
             <button className="btn-action btn-pdf" onClick={printReceipt}>
               <span>📄</span> Save as PDF
             </button>
-            
+
             <label className="btn-action btn-upload">
               <span>📷</span> Upload Photo
-              <input type="file" accept="image/*" style={{display:'none'}} onChange={(e) => handleReceiptImageUpload(e, activeLocation)}/>
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleReceiptImageUpload(e, activeLocation)} />
             </label>
           </div>
-          
+
           {/* RECEIPT IMAGE DISPLAY */}
           {activeTrip.receiptImages && activeTrip.receiptImages[activeLocation] && (
-            <div style={{marginBottom:'20px', borderRadius:'12px', overflow:'hidden', border:'1px solid var(--glass-border)', boxShadow:'0 10px 30px rgba(0,0,0,0.3)'}}>
-               <img src={activeTrip.receiptImages[activeLocation]} alt="Receipt" style={{width:'100%', maxHeight:'400px', objectFit:'contain', background:'rgba(0,0,0,0.2)', display:'block'}} />
+            <div style={{ marginBottom: '20px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--glass-border)', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+              <img src={activeTrip.receiptImages[activeLocation]} alt="Receipt" style={{ width: '100%', maxHeight: '400px', objectFit: 'contain', background: 'rgba(0,0,0,0.2)', display: 'block' }} />
             </div>
           )}
-          
+
           <div className="layout-grid">
-            <div className="card" style={ activeReceiptTheme ? { backgroundImage: activeReceiptTheme, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' } : {}}>
-              <h3 style={{marginTop:0, textShadow: activeReceiptTheme ? '0 2px 4px rgba(0,0,0,0.8)' : 'none'}}>Receipt Items</h3>
+            <div className="card" style={activeReceiptTheme ? { backgroundImage: activeReceiptTheme, backgroundSize: 'cover', backgroundPosition: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' } : {}}>
+              <h3 style={{ marginTop: 0, textShadow: activeReceiptTheme ? '0 2px 4px rgba(0,0,0,0.8)' : 'none' }}>Receipt Items</h3>
               <div className="items-grid">
                 {locationExpenses.map(exp => (
-                  <div key={exp.id} className="expense-box" style={activeReceiptTheme ? {background:'rgba(0,0,0,0.6)', borderColor:'rgba(255,255,255,0.2)'} : {}}>
+                  <div key={exp.id} className="expense-box" style={activeReceiptTheme ? { background: 'rgba(0,0,0,0.6)', borderColor: 'rgba(255,255,255,0.2)' } : {}}>
                     <div>
-                      <div style={{fontWeight:'bold', fontSize:'1rem', color:'white'}}>{exp.item}</div>
-                      <div style={{fontSize:'0.8rem', color:'var(--text-muted)'}}>Shared by: <span style={{color:'white'}}>{exp.involved.join(', ')}</span></div>
+                      <div style={{ fontWeight: 'bold', fontSize: '1rem', color: 'white' }}>{exp.item}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Shared by: <span style={{ color: 'white' }}>{exp.involved.join(', ')}</span></div>
                       {/* --- PAID BY SECTION --- */}
-                      <div style={{fontSize:'0.8rem', color: activeReceiptTheme ? '#818cf8' : 'var(--primary-glow)', marginTop:'4px', fontWeight: activeReceiptTheme ? 'bold' : 'normal'}}>
+                      <div style={{ fontSize: '0.8rem', color: activeReceiptTheme ? '#818cf8' : 'var(--primary-glow)', marginTop: '4px', fontWeight: activeReceiptTheme ? 'bold' : 'normal' }}>
                         Paid by: {exp.payer}
                       </div>
                     </div>
-                    <div className="expense-box-footer" style={{display:'flex', alignItems:'center', gap:'15px'}}>
-                        <span style={{color:'var(--success)', fontWeight:'bold', fontSize:'1.1rem'}}>${exp.amount.toFixed(2)}</span>
-                        <div className="no-print" style={{display:'flex', gap:'10px'}}>
-                           <span style={{cursor:'pointer', fontSize:'1.2rem'}} onClick={() => editSavedExpense(exp)}>✎</span>
-                           <span style={{cursor:'pointer', fontSize:'1.2rem', color:'var(--danger)'}} onClick={() => deleteExpense(exp.id)}>✕</span>
-                        </div>
+                    <div className="expense-box-footer" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                      <span style={{ color: 'var(--success)', fontWeight: 'bold', fontSize: '1.1rem' }}>${exp.amount.toFixed(2)}</span>
+                      <div className="no-print" style={{ display: 'flex', gap: '10px' }}>
+                        <span style={{ cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => editSavedExpense(exp)}>✎</span>
+                        <span style={{ cursor: 'pointer', fontSize: '1.2rem', color: 'var(--danger)' }} onClick={() => deleteExpense(exp.id)}>✕</span>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-            
+
             {/* RIGHT COLUMN: BREAKDOWN */}
             <div>
-              <h3 style={{marginTop:0, marginBottom:'15px', paddingLeft:'10px'}}>Split Breakdown</h3>
-              <div className="breakdown-grid"> 
+              <h3 style={{ marginTop: 0, marginBottom: '15px', paddingLeft: '10px' }}>Split Breakdown</h3>
+              <div className="breakdown-grid">
                 {Object.entries(getBreakdown(locationExpenses)).map(([person, data]) => (
                   <div key={person} className="spreadsheet-card">
                     <div className="spreadsheet-header">{person}</div>
                     <div className="spreadsheet-body">
                       {data.items.map((i, idx) => (
-                          <div key={idx} className="line-item"><span>{i.name}</span><span>{i.cost.toFixed(2)}</span></div>
+                        <div key={idx} className="line-item"><span>{i.name}</span><span>{i.cost.toFixed(2)}</span></div>
                       ))}
                     </div>
                     <div className="spreadsheet-footer">
-                       <div className="summary-row"><span>Subtotal</span><span>{data.subtotal.toFixed(2)}</span></div>
-                       <div className="summary-row"><span>Tax</span><span>{data.tax.toFixed(2)}</span></div>
-                       <div className="summary-row"><span>Tip</span><span>{data.tip.toFixed(2)}</span></div>
-                       <div className="grand-total-row"><span>TOTAL</span><span>${data.grandTotal.toFixed(2)}</span></div>
+                      <div className="summary-row"><span>Subtotal</span><span>{data.subtotal.toFixed(2)}</span></div>
+                      <div className="summary-row"><span>Tax</span><span>{data.tax.toFixed(2)}</span></div>
+                      <div className="summary-row"><span>Tip</span><span>{data.tip.toFixed(2)}</span></div>
+                      <div className="grand-total-row"><span>TOTAL</span><span>${data.grandTotal.toFixed(2)}</span></div>
                     </div>
                   </div>
                 ))}
@@ -980,46 +1093,46 @@ function App() {
       {/* ---------------- VIEW 4: EDITOR ---------------- */}
       {view === 'receipt_editor' && (
         <div className="container">
-          <button className="back-btn" onClick={() => setView('trip_view')} style={{marginBottom:'20px'}}>Cancel</button>
+          <button className="back-btn" onClick={() => setView('trip_view')} style={{ marginBottom: '20px' }}>Cancel</button>
           <div className="card">
-            <h2 style={{marginTop:0, color:'var(--primary)'}}>
-              {editingLocationBatch 
-                ? `Editing Receipt: ${editingLocationBatch}` 
+            <h2 style={{ marginTop: 0, color: 'var(--primary)' }}>
+              {editingLocationBatch
+                ? `Editing Receipt: ${editingLocationBatch}`
                 : (editingTripExpenseId ? `Edit Item in ${receiptLoc}` : "New Receipt")}
             </h2>
-            
-            <div className="input-row" style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
-               <div className="input-group" style={{flex:1}}><label>Location</label><input placeholder="e.g. Cowfish" value={receiptLoc} onChange={e => setReceiptLoc(e.target.value)} /></div>
-               <div className="input-group" style={{flex:1}}><label>Payer</label><input placeholder="e.g. Ashton" value={receiptPayer} onChange={e => setReceiptPayer(e.target.value)} /></div>
+
+            <div className="input-row" style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+              <div className="input-group" style={{ flex: 1 }}><label>Location</label><input placeholder="e.g. Cowfish" value={receiptLoc} onChange={e => setReceiptLoc(e.target.value)} /></div>
+              <div className="input-group" style={{ flex: 1 }}><label>Payer</label><input placeholder="e.g. Ashton" value={receiptPayer} onChange={e => setReceiptPayer(e.target.value)} /></div>
             </div>
-            <div style={{background:'rgba(255,255,255,0.05)', padding:'20px', borderRadius:'16px', marginBottom:'20px', border: editingIndex !== null ? '1px solid var(--success)' : '1px solid var(--glass-border)'}}>
-               <div className="input-row" style={{display:'flex', gap:'10px'}}>
-                  <div style={{flex:0.8}}><label style={{fontSize:'0.7rem'}}>Qty</label><input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} style={{textAlign:'center'}}/></div>
-                  <div style={{flex:2}}><label style={{fontSize:'0.7rem'}}>Item</label><input placeholder="Item Name" value={itemName} onChange={e => setItemName(e.target.value)} /></div>
-                  <div style={{flex:1.2}}><label style={{fontSize:'0.7rem'}}>Price</label><input type="number" placeholder="0.00" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} /></div>
-               </div>
-               <div className="input-group" style={{marginTop:'15px'}}><label style={{fontSize:'0.7rem'}}>Consumers</label><input placeholder="Who ate this? (e.g. Ashton, Bob)" value={itemConsumer} onChange={e => setItemConsumer(e.target.value)} /></div>
-               <div style={{marginTop:'15px', display:'flex', gap:'10px'}}>
-                  <button className="btn btn-primary" style={{padding:'12px', fontSize:'0.9rem', background: editingIndex!==null?'var(--success)':'', width:'auto'}} onClick={handleAddOrUpdateItem}>
-                    {editingIndex!==null ? 'Update Item' : '+ Add Item'}
-                  </button>
-               </div>
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '20px', borderRadius: '16px', marginBottom: '20px', border: editingIndex !== null ? '1px solid var(--success)' : '1px solid var(--glass-border)' }}>
+              <div className="input-row" style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 0.8 }}><label style={{ fontSize: '0.7rem' }}>Qty</label><input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} style={{ textAlign: 'center' }} /></div>
+                <div style={{ flex: 2 }}><label style={{ fontSize: '0.7rem' }}>Item</label><input placeholder="Item Name" value={itemName} onChange={e => setItemName(e.target.value)} /></div>
+                <div style={{ flex: 1.2 }}><label style={{ fontSize: '0.7rem' }}>Price</label><input type="number" placeholder="0.00" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} /></div>
+              </div>
+              <div className="input-group" style={{ marginTop: '15px' }}><label style={{ fontSize: '0.7rem' }}>Consumers</label><input placeholder="Who ate this? (e.g. Ashton, Bob)" value={itemConsumer} onChange={e => setItemConsumer(e.target.value)} /></div>
+              <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+                <button className="btn btn-primary" style={{ padding: '12px', fontSize: '0.9rem', background: editingIndex !== null ? 'var(--success)' : '', width: 'auto' }} onClick={handleAddOrUpdateItem}>
+                  {editingIndex !== null ? 'Update Item' : '+ Add Item'}
+                </button>
+              </div>
             </div>
             {currentItems.length > 0 && (
-              <ul style={{paddingLeft:0, listStyle:'none', marginBottom:'20px'}}>
+              <ul style={{ paddingLeft: 0, listStyle: 'none', marginBottom: '20px' }}>
                 {currentItems.map((item, idx) => (
-                  <li key={idx} style={{background:'rgba(255,255,255,0.05)', padding:'12px', marginBottom:'8px', borderRadius:'8px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                    <div><span style={{fontWeight:'bold'}}>{item.qty}x {item.name}</span> <span style={{color:'var(--text-muted)'}}>(${item.totalPrice.toFixed(2)})</span></div>
-                    <div style={{cursor:'pointer', padding:'5px'}} onClick={()=>startEditingDraftItem(idx)}>✎</div>
+                  <li key={idx} style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', marginBottom: '8px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div><span style={{ fontWeight: 'bold' }}>{item.qty}x {item.name}</span> <span style={{ color: 'var(--text-muted)' }}>(${item.totalPrice.toFixed(2)})</span></div>
+                    <div style={{ cursor: 'pointer', padding: '5px' }} onClick={() => startEditingDraftItem(idx)}>✎</div>
                   </li>
                 ))}
               </ul>
             )}
-            <div className="input-row" style={{display:'flex', gap:'15px', marginTop:'20px'}}>
-               <div className="input-group" style={{flex:1}}><div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><label>Tax</label><span onClick={()=>setTaxMode(taxMode==='$'?'%':'$')} style={{color:'var(--primary)', cursor:'pointer', fontWeight:'bold'}}>{taxMode}</span></div><input type="number" value={receiptTax} onChange={e => setReceiptTax(e.target.value)} /></div>
-               <div className="input-group" style={{flex:1}}><div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><label>Tip</label><span onClick={()=>setTipMode(tipMode==='$'?'%':'$')} style={{color:'var(--primary)', cursor:'pointer', fontWeight:'bold'}}>{tipMode}</span></div><input type="number" value={receiptTip} onChange={e => setReceiptTip(e.target.value)} /></div>
+            <div className="input-row" style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
+              <div className="input-group" style={{ flex: 1 }}><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><label>Tax</label><span onClick={() => setTaxMode(taxMode === '$' ? '%' : '$')} style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 'bold' }}>{taxMode}</span></div><input type="number" value={receiptTax} onChange={e => setReceiptTax(e.target.value)} /></div>
+              <div className="input-group" style={{ flex: 1 }}><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}><label>Tip</label><span onClick={() => setTipMode(tipMode === '$' ? '%' : '$')} style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 'bold' }}>{tipMode}</span></div><input type="number" value={receiptTip} onChange={e => setReceiptTip(e.target.value)} /></div>
             </div>
-            <button className="btn btn-primary" style={{marginTop:'30px'}} onClick={saveReceiptToTrip}>{editingTripExpenseId || editingLocationBatch ? "Save Changes" : "Save Receipt"}</button>
+            <button className="btn btn-primary" style={{ marginTop: '30px' }} onClick={saveReceiptToTrip}>{editingTripExpenseId || editingLocationBatch ? "Save Changes" : "Save Receipt"}</button>
           </div>
         </div>
       )}

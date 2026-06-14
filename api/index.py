@@ -1,11 +1,16 @@
-from settlement import calculate_settlements, Expense
-from flask import Flask, request, jsonify
+from datetime import datetime
+from functools import wraps
+import logging
 from flask_cors import CORS
+from flask import Flask, request, jsonify
+from settlement import calculate_settlements, Expense
 import sys
 import os
-import logging
-from functools import wraps
-from datetime import datetime
+
+# 1. Tell Vercel where to look FIRST
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# 2. THEN import your local files and external libraries
 
 # Configure logging
 logging.basicConfig(
@@ -13,10 +18,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# This tells Vercel to look inside the 'api' folder for settlement.py
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 
 app = Flask(__name__)
 

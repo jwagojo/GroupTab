@@ -113,19 +113,47 @@ function App() {
   // ==========================================
   // CONSUMER CHIP LOGIC
   // ==========================================
-  const existingPeople = Array.from(new Set(activeTrip?.expenses?.flatMap(e => e.involved) || []));
+  // 1. Extract raw people and filter out duplicates ignoring case
+  const rawPeople = activeTrip?.expenses?.flatMap(e => e.involved) || [];
+  const uniquePeopleMap = new Map();
+  rawPeople.forEach(p => {
+    if (!uniquePeopleMap.has(p.toLowerCase())) {
+      uniquePeopleMap.set(p.toLowerCase(), p); // Keeps the first capitalization it finds
+    }
+  });
+
+  const existingPeople = Array.from(uniquePeopleMap.values());
   const myName = user?.displayName ? user.displayName.split(' ')[0] : 'Me';
-  if (!existingPeople.includes(myName)) existingPeople.unshift(myName);
+
+  // Ensure current user is an option
+  if (!uniquePeopleMap.has(myName.toLowerCase())) {
+    existingPeople.unshift(myName);
+  }
 
   const allAvailablePeople = Array.from(new Set([...existingPeople, ...sessionPeople]));
 
   const handleAddNewPerson = (e) => {
     e.preventDefault();
     if (!newPersonName.trim()) return;
-    const name = newPersonName.trim();
 
-    if (!allAvailablePeople.includes(name)) setSessionPeople([...sessionPeople, name]);
-    if (!selectedConsumers.includes(name)) setSelectedConsumers([...selectedConsumers, name]);
+    // Auto-capitalize the typed name (e.g., "john" -> "John", "el john" -> "El John")
+    const formattedName = newPersonName
+      .trim()
+      .split(/\s+/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+
+    // Check if a variation of this name already exists (prevents duplicate chips)
+    const existingMatch = allAvailablePeople.find(p => p.toLowerCase() === formattedName.toLowerCase());
+    const finalNameToUse = existingMatch || formattedName;
+
+    if (!existingMatch && !sessionPeople.includes(finalNameToUse)) {
+      setSessionPeople([...sessionPeople, finalNameToUse]);
+    }
+
+    if (!selectedConsumers.includes(finalNameToUse)) {
+      setSelectedConsumers([...selectedConsumers, finalNameToUse]);
+    }
 
     setNewPersonName('');
   }
@@ -1148,7 +1176,7 @@ function App() {
               </div>
 
               <div className="input-group" style={{ marginTop: '15px' }}>
-                <label style={{ fontSize: '0.7rem', marginBottom: '10px' }}>Consumers (Select who ate this)</label>
+                <label style={{ fontSize: '0.7rem', marginBottom: '10px' }}>Consumers (Select who to charge)</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                   {allAvailablePeople.map(person => {
                     const isSelected = selectedConsumers.includes(person);

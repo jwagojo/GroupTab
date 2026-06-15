@@ -75,6 +75,7 @@ function App() {
   const [selectedConsumers, setSelectedConsumers] = useState([])
   const [sessionPeople, setSessionPeople] = useState([])
   const [newPersonName, setNewPersonName] = useState('')
+  const [hoveredChip, setHoveredChip] = useState(null) // NEW: Tracks which chip is being hovered
 
   // EDITING EXPENSE STATE
   const [editingIndex, setEditingIndex] = useState(null)
@@ -1180,11 +1181,16 @@ function App() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                   {allAvailablePeople.map(person => {
                     const isSelected = selectedConsumers.includes(person);
+                    const isNewAddition = sessionPeople.includes(person); // Check if this is a newly added name
+
                     return (
                       <div
                         key={person}
                         onClick={() => toggleConsumer(person)}
+                        onMouseEnter={() => setHoveredChip(person)}
+                        onMouseLeave={() => setHoveredChip(null)}
                         style={{
+                          display: 'flex', alignItems: 'center', gap: '8px',
                           padding: '8px 14px', borderRadius: '20px',
                           border: isSelected ? '1px solid var(--primary)' : '1px solid var(--glass-border)',
                           background: isSelected ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
@@ -1193,6 +1199,28 @@ function App() {
                         }}
                       >
                         {person}
+
+                        {/* ONLY show the X if it's hovered AND it's a newly added name */}
+                        {isNewAddition && hoveredChip === person && (
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevents the chip from toggling when clicking the X
+                              setSessionPeople(sessionPeople.filter(n => n !== person));
+                              setSelectedConsumers(selectedConsumers.filter(n => n !== person));
+                              setHoveredChip(null);
+                            }}
+                            style={{
+                              background: 'rgba(0,0,0,0.3)',
+                              borderRadius: '50%',
+                              width: '18px', height: '18px',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '0.65rem', color: '#fff'
+                            }}
+                            title="Remove typo"
+                          >
+                            ✕
+                          </div>
+                        )}
                       </div>
                     );
                   })}

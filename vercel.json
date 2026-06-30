@@ -67,6 +67,7 @@
   },
   "env": {
     "FLASK_ENV": "production",
-    "PYTHONUNBUFFERED": "1"
+    "PYTHONUNBUFFERED": "1",
+    "CORS_ORIGINS": "https://group-tab-six.vercel.app"
   }
 }

@@ -61,3 +61,4 @@ htmlcov/
 # Firebase cache
 .firebase/
 .firebaserc
+.agents

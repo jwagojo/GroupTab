@@ -1,14 +1,15 @@
-from api.settlement import calculate_settlements, Expense
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import sys
 import os
+
+# Must happen before any local imports so Python can find settlement.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from settlement import calculate_settlements, Expense
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import logging
 from functools import wraps
 from datetime import datetime
-
-# 1. Tell Vercel where to look FIRST
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
 logging.basicConfig(

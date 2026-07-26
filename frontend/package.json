@@ -13,7 +13,7 @@
     "type-check": "echo 'Type checking would require TypeScript setup'"
   },
   "dependencies": {
-    "firebase": "^12.16.0",
+    "@supabase/supabase-js": "^2.110.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

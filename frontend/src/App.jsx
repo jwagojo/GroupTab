@@ -1,24 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
-// --- FIREBASE IMPORTS ---
-import { auth, googleProvider, db, storage, functions } from './firebase'
-import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth'
-import {
-  doc,
-  setDoc,
-  onSnapshot,
-  query,
-  collection,
-  where,
-  updateDoc,
-  arrayUnion,
-  arrayRemove,
-  deleteDoc,
-  writeBatch
-} from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { httpsCallable } from 'firebase/functions'
+// --- SUPABASE IMPORTS ---
+import { supabase } from './supabase'
 
 // --- ASSETS ---
 const GoogleIcon = () => (
@@ -94,17 +78,13 @@ function App() {
   const activeTrip = trips.find(t => t.id === activeTripId)
   const isTripManager = (trip) => {
     if (!user || !trip) return false;
-    if (trip.ownerId) return trip.ownerId === user.uid || trip.admins?.includes(user.uid);
-    return trip.members?.[0] === user.uid;
+    return trip.owner_id === user.id || trip.user_role === 'admin' || trip.user_role === 'owner';
   };
   const manageableTrips = trips.filter(isTripManager);
 
   const locationExpenses = activeTrip
-    ? activeTrip.expenses.filter(e => e.location === activeLocation).sort((a, b) => {
-      const dateA = a.createdAt instanceof Object ? a.createdAt.toMillis?.() || new Date(a.createdAt).getTime() : new Date(a.createdAt).getTime();
-      const dateB = b.createdAt instanceof Object ? b.createdAt.toMillis?.() || new Date(b.createdAt).getTime() : new Date(b.createdAt).getTime();
-      return dateB - dateA;
-    })
+    ? activeTrip.expenses.filter(e => e.location === activeLocation).sort((a, b) =>
+        new Date(b.createdAt) - new Date(a.createdAt))
     : []
 
   const tripLocations = activeTrip
@@ -126,7 +106,7 @@ function App() {
   });
 
   const existingPeople = Array.from(uniquePeopleMap.values());
-  const myName = user?.displayName ? user.displayName.split(' ')[0] : 'Me';
+  const myName = user?.user_metadata?.full_name?.split(' ')[0] || user?.user_metadata?.name?.split(' ')[0] || 'Me';
 
   // Ensure current user is an option
   if (!uniquePeopleMap.has(myName.toLowerCase())) {
@@ -173,9 +153,9 @@ function App() {
   // 1. AUTHENTICATION LISTENER
   // ==========================================
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user)
         setView('dashboard')
       } else {
         setUser(null)
@@ -183,28 +163,30 @@ function App() {
         setTrips([])
       }
     })
-    return () => unsubscribe()
+    return () => subscription.unsubscribe()
   }, [])
-
 
   // ==========================================
   // 2. DATABASE SYNC (READ/WRITE)
   // ==========================================
   useEffect(() => {
-    if (user) {
-      const q = query(collection(db, "shared_trips"), where("members", "array-contains", user.uid));
+    if (!user) return;
 
-      const unsub = onSnapshot(q, (querySnapshot) => {
-        const tripList = [];
-        querySnapshot.forEach((doc) => {
-          tripList.push({ id: doc.id, ...doc.data() });
-        });
-        setTrips(tripList);
-      }, (error) => {
-        console.error("Snapshot Listener failed:", error);
-      });
-      return () => unsub();
-    }
+    const fetchTrips = async () => {
+      const { data, error } = await supabase.rpc('get_my_trips');
+      if (error) { console.error("Failed to fetch trips:", error); return; }
+      if (data) setTrips(data);
+    };
+
+    fetchTrips();
+
+    const channel = supabase
+      .channel('trips-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, fetchTrips)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_members' }, fetchTrips)
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
   }, [user]);
 
   useEffect(() => {
@@ -217,30 +199,15 @@ function App() {
     });
   }, [trips]);
 
-  useEffect(() => {
-    if (!user) return;
-    trips
-      .filter(trip => !trip.ownerId && trip.members?.[0] === user.uid)
-      .forEach(async (trip) => {
-        try {
-          await updateDoc(doc(db, "shared_trips", trip.id), {
-            ownerId: user.uid,
-            admins: [user.uid]
-          });
-        } catch (err) {
-          console.warn("Could not claim legacy trip ownership:", trip.id, err);
-        }
-      });
-  }, [trips, user]);
-
   const updateTripInCloud = async (tripId, updatedData) => {
     if (!user) return;
-    try {
-      const tripRef = doc(db, "shared_trips", tripId);
-      await updateDoc(tripRef, { ...updatedData, lastUpdated: new Date() });
-    } catch (e) {
-      console.error("Error updating trip:", e);
-      alert("Permission denied. Check your rules for shared_trips.");
+    const { error } = await supabase
+      .from('trips')
+      .update({ ...updatedData, last_updated: new Date().toISOString() })
+      .eq('id', tripId);
+    if (error) {
+      console.error("Error updating trip:", error);
+      alert("Failed to update trip. Check your connection.");
     }
   };
 
@@ -248,16 +215,15 @@ function App() {
   // AUTH ACTIONS
   // ==========================================
   const handleGoogleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider)
-    } catch (error) {
-      console.error(error)
-      alert("Login failed")
-    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin }
+    })
+    if (error) { console.error(error); alert("Login failed") }
   }
 
   const handleLogout = async () => {
-    await signOut(auth)
+    await supabase.auth.signOut()
   }
 
   // ==========================================
@@ -366,11 +332,14 @@ function App() {
     if (file.size > 10000000) return alert("File is way too huge! Please pick something smaller.");
     try {
       const blob = await resizeImageToBlob(file);
-      const storageRef = ref(storage, `trips/${activeTripId}/${location}`);
-      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
-      const downloadURL = await getDownloadURL(storageRef);
-      const updatedImages = { ...(activeTrip.receiptImages || {}), [location]: downloadURL };
-      await updateTripInCloud(activeTripId, { receiptImages: updatedImages });
+      const path = `trips/${activeTripId}/${location}`;
+      const { error: uploadError } = await supabase.storage
+        .from('receipts')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(path);
+      const updatedImages = { ...(activeTrip.receipt_images || {}), [location]: publicUrl };
+      await updateTripInCloud(activeTripId, { receipt_images: updatedImages });
     } catch (err) {
       console.error("Image upload error:", err);
       alert("Could not process image.");
@@ -384,32 +353,36 @@ function App() {
     if (!newFolderName.trim()) return;
 
     const generatedCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const now = new Date();
-
-    // Takes the folder name (e.g., "Madrid 2026") and fetches a scenic photo for it
+    const now = new Date().toISOString();
     const safeName = encodeURIComponent(newFolderName.trim());
     const autoBackground = `url(https://image.pollinations.ai/prompt/beautiful%20scenic%20travel%20photography%20of%20${safeName}?width=1280&height=720&nologo=true)`;
 
-    const newTrip = {
-      name: newFolderName,
-      expenses: [],
-      themes: {},
-      background: autoBackground, // Automatically applies the image URL!
-      joinCode: generatedCode,
-      ownerId: user.uid,
-      admins: [user.uid],
-      members: [user.uid],
-      settledDebts: [],
-      createdAt: now,
-      lastUpdated: now
-    };
-
     try {
-      await setDoc(doc(db, "shared_trips", generatedCode), newTrip);
+      const { error: tripError } = await supabase.from('trips').insert({
+        id: generatedCode,
+        name: newFolderName,
+        expenses: [],
+        themes: {},
+        background: autoBackground,
+        owner_id: user.id,
+        settled_debts: [],
+        receipt_images: {},
+        created_at: now,
+        last_updated: now
+      });
+      if (tripError) throw tripError;
+
+      const { error: memberError } = await supabase.from('trip_members').insert({
+        trip_id: generatedCode,
+        user_id: user.id,
+        role: 'owner'
+      });
+      if (memberError) throw memberError;
+
       setNewFolderName('');
     } catch (e) {
-      console.error("Error creating shared trip: ", e);
-      alert("Check your console (F12) for the specific Firebase error.");
+      console.error("Error creating trip:", e);
+      alert("Could not create trip. Please try again.");
     }
   };
 
@@ -417,10 +390,16 @@ function App() {
     if (!joinCodeInput.trim()) return;
     const formattedCode = joinCodeInput.trim().toUpperCase();
     try {
-      const tripRef = doc(db, "shared_trips", formattedCode);
-      await updateDoc(tripRef, {
-        members: arrayUnion(user.uid)
+      const { error } = await supabase.from('trip_members').insert({
+        trip_id: formattedCode,
+        user_id: user.id,
+        role: 'member'
       });
+      if (error) {
+        if (error.code === '23505') return alert("You're already a member of this trip!");
+        if (error.code === '23503') return alert("Trip not found. Check the code and try again.");
+        throw error;
+      }
       setJoinCodeInput('');
       alert("Successfully joined the trip!");
     } catch (e) {
@@ -435,37 +414,23 @@ function App() {
     if (!isTripManager(tripToDelete)) return alert("Only the trip owner or an admin can delete this trip.");
 
     if (confirm("Delete this entire trip folder for everyone?")) {
-      try {
-        const tripDocRef = doc(db, "shared_trips", id);
-        await deleteDoc(tripDocRef);
-      } catch (err) {
-        console.error("Error deleting trip: ", err);
-      }
+      const { error } = await supabase.from('trips').delete().eq('id', id);
+      if (error) console.error("Error deleting trip:", error);
     }
   };
 
   const clearAllTrips = async () => {
     if (!user || manageableTrips.length === 0 || isClearingTrips) return;
     const tripCount = manageableTrips.length;
-    const confirmMessage = `This will permanently delete ${tripCount} trip${tripCount === 1 ? '' : 's'} you own or administer for everyone who has access. Continue?`;
-    if (!window.confirm(confirmMessage)) return;
-
-    const confirmationPhrase = `CLEAR ${tripCount}`;
-    if (window.prompt(`Final confirmation: type "${confirmationPhrase}" to delete all trips.`) !== confirmationPhrase) return;
+    if (!window.confirm(`This will permanently delete ${tripCount} trip${tripCount === 1 ? '' : 's'} you own or administer for everyone. Continue?`)) return;
+    if (window.prompt(`Final confirmation: type "CLEAR ${tripCount}" to delete all trips.`) !== `CLEAR ${tripCount}`) return;
 
     setIsClearingTrips(true);
     try {
-      const batchSize = 450;
-      for (let i = 0; i < manageableTrips.length; i += batchSize) {
-        const batch = writeBatch(db);
-        manageableTrips.slice(i, i + batchSize).forEach((trip) => {
-          batch.delete(doc(db, "shared_trips", trip.id));
-        });
-        await batch.commit();
-      }
+      await Promise.all(manageableTrips.map(t => supabase.from('trips').delete().eq('id', t.id)));
       setShowBgPicker(null);
     } catch (err) {
-      console.error("Error clearing trips: ", err);
+      console.error("Error clearing trips:", err);
     } finally {
       setIsClearingTrips(false);
     }
@@ -477,13 +442,9 @@ function App() {
   };
 
   const updateTripBackground = async (tripId, bgValue) => {
-    try {
-      const tripRef = doc(db, "shared_trips", tripId);
-      await updateDoc(tripRef, { background: bgValue });
-      setShowBgPicker(null);
-    } catch (e) {
-      console.error("Update Error:", e);
-    }
+    const { error } = await supabase.from('trips').update({ background: bgValue }).eq('id', tripId);
+    if (error) console.error("Update Error:", error);
+    setShowBgPicker(null);
   };
 
   const handleFileUpload = async (e, tripId) => {
@@ -491,10 +452,13 @@ function App() {
     if (!file) return;
     if (file.size > 5000000) return alert("Image is too large! Please choose a file smaller than 5MB.");
     try {
-      const storageRef = ref(storage, `trips/${tripId}/background`);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const downloadURL = await getDownloadURL(storageRef);
-      updateTripBackground(tripId, `url(${downloadURL})`);
+      const path = `trips/${tripId}/background`;
+      const { error: uploadError } = await supabase.storage
+        .from('receipts')
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(path);
+      updateTripBackground(tripId, `url(${publicUrl})`);
     } catch (err) {
       console.error("Background upload error:", err);
       alert("Could not upload background image.");
@@ -518,24 +482,20 @@ function App() {
   const toggleSettlement = async (line) => {
     if (!activeTrip || !activeTripId) return;
 
-    // Calculate the new state locally immediately
-    const currentSettled = activeTrip.settledDebts || [];
+    const currentSettled = activeTrip.settled_debts || [];
     const isSettled = currentSettled.includes(line);
+    const updated = isSettled ? currentSettled.filter(d => d !== line) : [...currentSettled, line];
 
-    const updatedSettledDebts = isSettled
-      ? currentSettled.filter(d => d !== line)
-      : [...currentSettled, line];
+    // Optimistic update
+    activeTrip.settled_debts = updated;
 
-    activeTrip.settledDebts = updatedSettledDebts;
+    const { error } = await supabase
+      .from('trips')
+      .update({ settled_debts: updated })
+      .eq('id', activeTripId);
 
-    const tripRef = doc(db, "shared_trips", activeTripId);
-
-    try {
-      await updateDoc(tripRef, {
-        settledDebts: isSettled ? arrayRemove(line) : arrayUnion(line)
-      });
-    } catch (e) {
-      console.error("Error updating settlement status:", e);
+    if (error) {
+      console.error("Error updating settlement status:", error);
       alert("Could not update settlement. Check internet connection.");
     }
   };
@@ -572,9 +532,11 @@ function App() {
     if (!activeTrip || activeTrip.expenses.length === 0) return;
     setIsLoading(true);
     try {
-      const calculate = httpsCallable(functions, 'calculateSettlements');
-      const result = await calculate(activeTrip.expenses);
-      setResults(Array.isArray(result.data) ? result.data : []);
+      const { data, error } = await supabase.functions.invoke('calculate-settlements', {
+        body: activeTrip.expenses
+      });
+      if (error) throw error;
+      setResults(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Settlement calculation error:", error);
       alert("Failed to calculate settlements. Please try again.");
@@ -654,7 +616,6 @@ function App() {
     });
 
     try {
-      const tripRef = doc(db, "shared_trips", activeTripId);
       let finalExpensesList = activeTrip.expenses;
 
       if (editingLocationBatch) {
@@ -663,10 +624,12 @@ function App() {
         finalExpensesList = finalExpensesList.filter(e => e.id !== editingTripExpenseId);
       }
 
-      await updateDoc(tripRef, {
+      const { error } = await supabase.from('trips').update({
         expenses: [...finalExpensesList, ...newExpenses],
-        lastUpdated: new Date()
-      });
+        last_updated: new Date().toISOString()
+      }).eq('id', activeTripId);
+
+      if (error) throw error;
 
       setActiveLocation(receiptLoc);
       setView('receipt_detail');
@@ -775,7 +738,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <h2 className="header-title" style={{ margin: 0, fontSize: '1.8rem', cursor: 'pointer' }} onClick={goHome}>GroupTab 📁</h2>
           <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '20px' }}>
-            {user.displayName ? user.displayName.split(' ')[0] : 'User'}
+            {user.user_metadata?.full_name?.split(' ')[0] || user.user_metadata?.name?.split(' ')[0] || 'User'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -789,7 +752,7 @@ function App() {
         <div className="dashboard-container">
           <div className="dashboard-header">
             <div>
-              <h1 className="dash-title">Welcome back, <span className="text-highlight">{user.displayName ? user.displayName.split(' ')[0] : 'Traveler'}</span></h1>
+              <h1 className="dash-title">Welcome back, <span className="text-highlight">{user.user_metadata?.full_name?.split(' ')[0] || user.user_metadata?.name?.split(' ')[0] || 'Traveler'}</span></h1>
               <p className="dash-subtitle">Create a trip, join a group, or jump back into recent expenses.</p>
             </div>
             <div className="stat-pill"><span className="stat-num">{trips.length}</span><span className="stat-label">Active Trips</span></div>
@@ -837,11 +800,9 @@ function App() {
               <div className="empty-state"><div className="empty-icon"></div><p>No trips yet. Type a destination above to get started!</p></div>
             ) : (
               <div className="home-trip-grid">
-                {[...trips].sort((a, b) => {
-                  const dateA = a.lastUpdated instanceof Object ? a.lastUpdated.toMillis?.() || new Date(a.lastUpdated).getTime() : new Date(a.lastUpdated).getTime();
-                  const dateB = b.lastUpdated instanceof Object ? b.lastUpdated.toMillis?.() || new Date(b.lastUpdated).getTime() : new Date(b.lastUpdated).getTime();
-                  return dateB - dateA;
-                }).map(trip => (
+                {[...trips].sort((a, b) =>
+                  new Date(b.last_updated) - new Date(a.last_updated)
+                ).map(trip => (
                   <div
                     key={trip.id}
                     className="folder-card home-trip-card"
@@ -862,10 +823,10 @@ function App() {
                         <div className="folder-name">{trip.name}</div>
                         <div className="folder-meta" style={trip.background ? { color: 'rgba(255,255,255,0.9)' } : {}}>
                           <span>{trip.expenses.length} expenses</span>
-                          <span className="meta-dot">{trip.members?.length || 1} members</span>
+                          <span className="meta-dot">{trip.member_count || 1} members</span>
                         </div>
                         <div className="folder-date" style={trip.background ? { color: 'rgba(255,255,255,0.85)' } : {}}>
-                          Updated {new Date(trip.lastUpdated?.toMillis?.() || trip.lastUpdated).toLocaleDateString()}
+                          Updated {new Date(trip.last_updated).toLocaleDateString()}
                         </div>
                       </div>
                     </div>
@@ -931,8 +892,8 @@ function App() {
               borderRadius: '12px', width: 'fit-content', fontSize: '0.85rem', color: 'var(--primary-glow)', display: 'flex', gap: '8px', alignItems: 'center'
             }}>
               <span style={{ opacity: 0.7 }}>Invite Code:</span>
-              <strong style={{ letterSpacing: '1px', color: 'white' }}>{activeTrip.joinCode || '------'}</strong>
-              <span style={{ cursor: 'pointer', marginLeft: '5px' }} onClick={() => navigator.clipboard.writeText(activeTrip.joinCode)} title="Copy Code">📋</span>
+              <strong style={{ letterSpacing: '1px', color: 'white' }}>{activeTrip.id || '------'}</strong>
+              <span style={{ cursor: 'pointer', marginLeft: '5px' }} onClick={() => navigator.clipboard.writeText(activeTrip.id)} title="Copy Code">📋</span>
             </div>
           </div>
 
@@ -996,7 +957,7 @@ function App() {
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {debts.map((debt, idx) => {
-                            const isSettled = activeTrip.settledDebts?.includes(debt.line);
+                            const isSettled = activeTrip.settled_debts?.includes(debt.line);
 
                             return (
                               <div key={idx} style={{
@@ -1110,9 +1071,9 @@ function App() {
             </label>
           </div>
 
-          {activeTrip.receiptImages && activeTrip.receiptImages[activeLocation] && (
+          {activeTrip.receipt_images && activeTrip.receipt_images[activeLocation] && (
             <div style={{ marginBottom: '20px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--glass-border)', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
-              <img src={activeTrip.receiptImages[activeLocation]} alt="Receipt" style={{ width: '100%', maxHeight: '400px', objectFit: 'contain', background: 'rgba(0,0,0,0.2)', display: 'block' }} />
+              <img src={activeTrip.receipt_images[activeLocation]} alt="Receipt" style={{ width: '100%', maxHeight: '400px', objectFit: 'contain', background: 'rgba(0,0,0,0.2)', display: 'block' }} />
             </div>
           )}
 

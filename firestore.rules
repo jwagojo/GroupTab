@@ -29,6 +29,7 @@ service cloud.firestore {
           'ownerId',
           'admins',
           'members',
+          'settledDebts',
           'createdAt',
           'lastUpdated'
         ])
@@ -41,6 +42,7 @@ service cloud.firestore {
           'ownerId',
           'admins',
           'members',
+          'settledDebts',
           'createdAt',
           'lastUpdated'
         ])
@@ -49,6 +51,7 @@ service cloud.firestore {
         && request.resource.data.admins == [request.auth.uid]
         && request.resource.data.members == [request.auth.uid]
         && request.resource.data.expenses is list
+        && request.resource.data.settledDebts is list
         && request.resource.data.themes is map
         && request.resource.data.background is string
         && request.resource.data.joinCode is string
@@ -64,6 +67,7 @@ service cloud.firestore {
           'themes',
           'background',
           'receiptImages',
+          'settledDebts',
           'lastUpdated'
         ]);
       }

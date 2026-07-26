@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 // --- FIREBASE IMPORTS ---
-import { auth, googleProvider, db } from './firebase'
+import { auth, googleProvider, db, storage, functions } from './firebase'
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth'
 import {
   doc,
@@ -13,10 +13,12 @@ import {
   where,
   updateDoc,
   arrayUnion,
-  arrayRemove, // Added for un-settling debts
+  arrayRemove,
   deleteDoc,
   writeBatch
 } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { httpsCallable } from 'firebase/functions'
 
 // --- ASSETS ---
 const GoogleIcon = () => (
@@ -330,7 +332,7 @@ function App() {
     setView('receipt_editor');
   };
 
-  const resizeImage = (file, maxWidth = 800) => {
+  const resizeImageToBlob = (file, maxWidth = 800) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -352,7 +354,7 @@ function App() {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
+          canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.7);
         };
       };
     });
@@ -363,8 +365,11 @@ function App() {
     if (!file) return;
     if (file.size > 10000000) return alert("File is way too huge! Please pick something smaller.");
     try {
-      const resizedBase64 = await resizeImage(file);
-      const updatedImages = { ...(activeTrip.receiptImages || {}), [location]: resizedBase64 };
+      const blob = await resizeImageToBlob(file);
+      const storageRef = ref(storage, `trips/${activeTripId}/${location}`);
+      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
+      const downloadURL = await getDownloadURL(storageRef);
+      const updatedImages = { ...(activeTrip.receiptImages || {}), [location]: downloadURL };
       await updateTripInCloud(activeTripId, { receiptImages: updatedImages });
     } catch (err) {
       console.error("Image upload error:", err);
@@ -481,15 +486,18 @@ function App() {
     }
   };
 
-  const handleFileUpload = (e, tripId) => {
+  const handleFileUpload = async (e, tripId) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 500000) return alert("Image is too large! Please choose a file smaller than 500KB.");
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateTripBackground(tripId, `url(${reader.result})`);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (file.size > 5000000) return alert("Image is too large! Please choose a file smaller than 5MB.");
+    try {
+      const storageRef = ref(storage, `trips/${tripId}/background`);
+      await uploadBytes(storageRef, file, { contentType: file.type });
+      const downloadURL = await getDownloadURL(storageRef);
+      updateTripBackground(tripId, `url(${downloadURL})`);
+    } catch (err) {
+      console.error("Background upload error:", err);
+      alert("Could not upload background image.");
     }
   };
 
@@ -563,21 +571,13 @@ function App() {
   const calculateTripSettlement = async () => {
     if (!activeTrip || activeTrip.expenses.length === 0) return;
     setIsLoading(true);
-
     try {
-      const response = await fetch('/api/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(activeTrip.expenses),
-      });
-
-      if (!response.ok) throw new Error('Network response was not ok');
-
-      const settlementPlan = await response.json();
-      setResults(Array.isArray(settlementPlan) ? settlementPlan : settlementPlan.data || []);
+      const calculate = httpsCallable(functions, 'calculateSettlements');
+      const result = await calculate(activeTrip.expenses);
+      setResults(Array.isArray(result.data) ? result.data : []);
     } catch (error) {
-      console.error("Error fetching settlement:", error);
-      alert("Failed to connect to backend.");
+      console.error("Settlement calculation error:", error);
+      alert("Failed to calculate settlements. Please try again.");
     } finally {
       setIsLoading(false);
     }

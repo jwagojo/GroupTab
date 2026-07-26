@@ -62,3 +62,4 @@ htmlcov/
 .firebase/
 .firebaserc
 .agents
+.vercel

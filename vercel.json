@@ -68,6 +68,6 @@
   "env": {
     "FLASK_ENV": "production",
     "PYTHONUNBUFFERED": "1",
-    "CORS_ORIGINS": "https://group-tab-six.vercel.app"
+    "CORS_ORIGINS": "https://grouptabv2.vercel.app"
   }
 }
